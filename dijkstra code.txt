@@ -1,0 +1,101 @@
+#include <iostream>
+#include <omp.h>
+#include <mpi.h>
+#include <thread>
+
+#define INF 9999
+
+using namespace std;
+
+void dijkstra(int graph[][6], int n, int src) {
+    int dist[6];          // Stores shortest distance from source
+    bool visited[6] = {0}; // Tracks visited nodes
+    int previous[6];       // Tracks paths
+
+    // Initialize distances and path
+    #pragma omp parallel for
+    for (int i = 0; i < n; i++) {
+        dist[i] = INF;
+        previous[i] = -1;
+    }
+    dist[src] = 0;
+
+    for (int count = 0; count < n - 1; count++) {
+        int minDist = INF, minNode;
+
+        // Find the unvisited node with the smallest distance
+        #pragma omp parallel for
+        for (int v = 0; v < n; v++) {
+            if (!visited[v] && dist[v] < minDist) {
+                #pragma omp critical
+                {
+                    minDist = dist[v];
+                    minNode = v;
+                }
+            }
+        }
+
+        visited[minNode] = true;
+
+        // Update distances of neighbors
+        #pragma omp parallel for
+        for (int v = 0; v < n; v++) {
+            if (!visited[v] && graph[minNode][v] && dist[minNode] != INF &&
+                dist[minNode] + graph[minNode][v] < dist[v]) {
+                dist[v] = dist[minNode] + graph[minNode][v];
+                previous[v] = minNode;
+            }
+        }
+    }
+
+    // Print all paths and their distances
+    cout << "\nAll Paths and Distances from Node " << char(src + 'A') << ":\n";
+    for (int i = 0; i < n; i++) {
+        if (i != src) {
+            cout << "Path to Node " << char(i + 'A') << ": ";
+            int j = i;
+            while (previous[j] != -1) {
+                cout << char(j + 'A') << " <- ";
+                j = previous[j];
+            }
+            cout << char(src + 'A') << " (Distance: " << dist[i] << ")\n";
+        }
+    }
+
+    // Print shortest path to the farthest node (optimal path)
+    cout << "\nOptimal Path (Shortest to Farthest Node):\n";
+    int farthest = -1, maxDist = -1;
+    for (int i = 0; i < n; i++) {
+        if (dist[i] > maxDist && dist[i] != INF) {
+            maxDist = dist[i];
+            farthest = i;
+        }
+    }
+    cout << "Node " << char(src + 'A') << " to Node " << char(farthest + 'A')
+         << " with distance: " << maxDist << endl;
+}
+
+int main(int argc, char *argv[]) {
+    int rank, size;
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    const int n = 6; // Number of nodes
+    int graph[6][6] = {
+        {0, 2, 0, 8, 0, 0},
+        {2, 0, 0, 5, 6, 0},
+        {0, 0, 0, 0, 9, 3},
+        {8, 5, 0, 0, 3, 2},
+        {0, 6, 9, 3, 0, 1},
+        {0, 0, 3, 2, 1, 0}};
+
+    if (rank == 0) { // Master process calculates the shortest paths
+        cout << "Finding paths using Dijkstra's Algorithm...\n";
+        dijkstra(graph, n, 0); // Starting node is A (index 0)
+    }
+
+    MPI_Finalize();
+    return 0;
+}
